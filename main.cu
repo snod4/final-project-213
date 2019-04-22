@@ -2,7 +2,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <openssl/md5.h>
 
+#define _GNU_SOURCE
 #define NUM_THREADS = 32
 #define MAX_USERNAME_LENGTH 64
 
@@ -13,15 +15,20 @@
 #define SECOND_POWER (26 * 26)
 #define FIRST_POWER 26
 
+#define MD5_DIGEST_LENGTH
 
 
-int POWER_ARR[] = {1, FIRST_POWER, SECOND_POWER, THIRD_POWER, FOURTH_POWER, FIFTH_POWER};
+
+const int POWER_ARR[] = {1, FIRST_POWER, SECOND_POWER, THIRD_POWER, FOURTH_POWER, FIFTH_POWER};
 
 
 typedef struct hashInfo{
   char * password;
   char * hash;
+  struct * hashInfo next;
 }hashInfo_t;
+
+
 
 __global__  void crack(char * startString, hashInfo_t * hashData, int length){
   //get string permuation
@@ -35,11 +42,18 @@ __global__  void crack(char * startString, hashInfo_t * hashData, int length){
     word[5 - i] += temp;
     tempNum = tempNum % POWER_ARR[i];
   }
+  char output[PASSWORD_LENGTH];
+  
+  
 
   //-----HASH CODE HERE-----//
   char * hashVar;
-  for(int i = 0; i < length, i++){
-    
+  
+  while(hashData->next != NULL){
+    if(memcmp(hashData->hash, hashVar, MD5_DIGEST_LENGTH) == 0){
+      cudaMemcpy(hashData->password, word, PASSWORD_LENGTH, cudaMemcpyDeviceToDevice);
+      break;
+      }
   }
   
 
@@ -50,7 +64,35 @@ __global__  void crack(char * startString, hashInfo_t * hashData, int length){
   
 }
 
-int main(){
+//add hash to hash table
+void addToTable(hashInfo * table, char * hash){
+  hashInfo_t * temp = (hashInfo_t *) malloc(sizeof(hashInfo_t));
+  strncpy(temp->hash, hash, PASSWORD_LENGTH);
+  temp->next = NULL;
+  temp->password = NULL;
+  
+  if(table[hash[0] - 48 ]== NULL){
+    table[hash[0] - 48] = temp;
+  }
+  else{
+    temp->next =  table[hash[0] - 48];
+    table[hash[0] - 48] = temp;
+  }
+}
 
+int main(){
+  hashInfo_t * hashTable[74];
+  int count = 0;
+  //get hashes in here -- add them -- count them //
+  
+  hashInfo_t * gpu_hashTable;
+  int number_of_blocks = (count+NUM_THREADS)/NUM_THREADS;
+  //ISSUE IN COPYING A LINKED LIST TO THE GPU 
+
+
+  
+
+  
+  
   return 0;
 }
