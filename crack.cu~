@@ -3,8 +3,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <openssl/md5.h>
-#include <cuda.h>
-#include "md5.cu"
+#include <
 
 #define _GNU_SOURCE
 #define NUM_THREADS = 32
@@ -33,9 +32,10 @@ typedef struct hashInfo{
 
 
 
-__global__  void crack(hashInfo_t * hashData, int length){
+__global__  void crack(char * startString, hashInfo_t * hashData, int length){
   //get string permuation
-  int tempNum = blockIdx.x * NUM_THREADS + threadIdx.x;
+  int stringPerm = blockIdx.x * NUM_THREADS + threadIdx.x;
+  int tempNum = stringPerm;
   char word[] = "aaaaaa";
 
   //Generate the permutation for the given thread/core
@@ -55,9 +55,8 @@ __global__  void crack(hashInfo_t * hashData, int length){
   md5((uint*)word, candidate_hash);
   
   
-  for(int j = 0; j < 100; j++){
-    //add one for NULL character?
-    if(memcmp(hashData[j], candidate_hash, HASH_LENGTH) == 0){
+  while(hashData->next != NULL){
+    if(memcmp(hashData->hash, hashVar, MD5_DIGEST_LENGTH) == 0){
       cudaMemcpy(hashData->password, word, PASSWORD_LENGTH, cudaMemcpyDeviceToDevice);
       break;
       }
@@ -87,16 +86,15 @@ void addToTable(hashInfo * table, char * hash){
   }
 }
 
-int main(int, argv, char* args[]){
+int main(int, argv, String args[]){
   /*  hashInfo_t * hashTable[74];
   int count = 0;
   //get hashes in here -- add them -- count them //
   
   hashInfo_t * gpu_hashTable;
- 
+  int number_of_blocks = (count+NUM_THREADS)/NUM_THREADS;
   //ISSUE IN COPYING A LINKED LIST TO THE GPU
  */
-  int number_of_blocks = (100+NUM_THREADS)/NUM_THREADS;
   hashInfo_t arr[100];
   if(argv != 2){
     perror("crack <File Path>\n");
@@ -111,35 +109,8 @@ int main(int, argv, char* args[]){
     arr[count].hash =  strdup(outputHash, strlen(outputHash));
     count++;
   }
-
-  hashInfo_t * gpu_arr;
-  if(cudaMalloc(gpu_arr, sizeof(hashInfo_t) * 100) != cudaSuccess){
-    perror("Cuda Malloc Failed\n");
-    exit(2);
-  }
-
-  if(cudaMemcpy(gpu_arr, arr, sizeof(hashInfo_t) * 100, cudaMemcpyHostToDevice) != cudaSuccess){
-    perror("Cuda CPU to GPU memcpy Failed\n");
-    exit(2);
-  }
   
-  crack<<<number_of_blocks, NUM_THREADS>>>(gpu_arr,100);
 
-  if(cudaDeviceSynchronize() != cudaSuccess){
-    perror("CUDA Thread Synchronization Error\n");
-    exit(2);
-  }
-
-  if(cudaMemcpy(arr, gpu_arr, sizeof(hashInfo_t) * 100, cudaMemcpyDeviceToHost) != cudaSuccess){
-    perror("Cuda GPU to CPU memcpy Failed\n");
-    exit(2);
-  }
-
-  for(int i - 0; i < 100; i++){
-    printf("Password: %s, Hash: %s\n", arr[i].password, arr[i].hash);
-  }
-
-  
   
 
   
