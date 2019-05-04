@@ -15,11 +15,15 @@
 #define FIRST_POWER 26
 
 __device__ int POWER_ARR[] = {1, FIRST_POWER, SECOND_POWER, THIRD_POWER, FOURTH_POWER, FIFTH_POWER};
+
 typedef struct output{
   char password[PASSWORD_LENGTH+1];
-  char hash[17];
+  uint hash[4];
 }output_t;
 
+
+/*hash_it_up takes a pointer to output and feeds out 'max' passwords and
+hashes. Runs on the GPU*/
 __global__ void hash_it_up (output_t * output, int max){
   
   int tempNum;
@@ -27,22 +31,23 @@ __global__ void hash_it_up (output_t * output, int max){
     char word[] = "aaaaaa";
     tempNum = count;
 
-    //Generate the permutation for the given thread/core
+    //Generate and store a permutation
     for(int i = PASSWORD_LENGTH - 1; i >= 0; i--){
       int temp = (int) (tempNum/POWER_ARR[i]);
       word[PASSWORD_LENGTH -1 - i] += temp;
       tempNum = tempNum % POWER_ARR[i];
     }
-    word[PASSWORD_LENGTH] = '\0';;
+    
+    word[PASSWORD_LENGTH] = '\0';
+    //Store the Password
     memcpy(output[count].password, word, sizeof(char)*PASSWORD_LENGTH+1);
-    uint candidate_hash[17];
-    
+
+    //Hash a pasword
+    uint candidate_hash[4];
     md5((uint*)word, candidate_hash);
-    candidate_hash[16] = '\0';
-               
-    
-    memcpy(output[count].hash, candidate_hash, sizeof(char)*17);
-    
+
+    //Store the hash
+    memcpy(output[count].hash, candidate_hash, sizeof(uint)*4);
   }
 
   
@@ -54,24 +59,36 @@ int main(int argc,char* args[]){
   int max = 10;
   output_t * gpu_input;
   output_t * output = (output_t *) malloc(sizeof(output_t)*max);
- 
+
+  //Allocate space on GPU
   if(cudaMalloc(&gpu_input, sizeof(output_t)*max) != cudaSuccess){
     perror("Cuda Malloc Failed\n");
   }
+
+  //Call the hash-generating function
   hash_it_up<<<1,1>>>(gpu_input, max);
 
+  //Wait for all of the threads to finish
   if(cudaDeviceSynchronize() != cudaSuccess){
     perror("Cuda Sync Failed\n");
   }
 
-  if(cudaMemcpy(output, gpu_input, sizeof(output_t)*max, cudaMemcpyDeviceToHost) != cudaSuccess){
+  //Copy back the generated passwords from the GPU
+  if(cudaMemcpy(output, gpu_input, sizeof(output_t)*max,
+                cudaMemcpyDeviceToHost) != cudaSuccess){
     perror("Cuda Memcpy Failed Here\n");
     exit(2);
   }
+
   
-  file = fopen("outputFile.txt", "w");
+  //Write passwords and hashes to a file
+  file = fopen("outputFile.txt", "w");///////Change the file to an argv index
   for(int i = 0; i < max; i++){
-    fprintf(file, "%s %s\n",output[i].password, output[i].hash);
+    fprintf(file, "%s ",output[i].password);
+    for(int j = 0; j < 4; j++){
+     fprintf(file, "%u ",output[i].hash[j]);
+    }
+    fprintf(file, "\n");
   }
   fclose(file);
   

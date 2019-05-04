@@ -6,8 +6,7 @@
 #include <cuda.h>
 #include "md5.cu"
 
-#define _GNU_SOURCE
-#define NUM_THREADS = 32
+#define NUM_THREADS 32
 #define MAX_USERNAME_LENGTH 64
 
 #define PASSWORD_LENGTH 6
@@ -17,22 +16,19 @@
 #define SECOND_POWER (26 * 26)
 #define FIRST_POWER 26
 
-#define MD5_DIGEST_LENGTH
 #define HASH_LENGTH 32
+#define NUM_INPUT 10
 
-
-
-const int POWER_ARR[] = {1, FIRST_POWER, SECOND_POWER, THIRD_POWER, FOURTH_POWER, FIFTH_POWER};
+__device__ int POWER_ARR[] = {1, FIRST_POWER, SECOND_POWER, THIRD_POWER, FOURTH_POWER, FIFTH_POWER};
 
 
 typedef struct hashInfo{
-  char * password;
-  char * hash;
-  struct * hashInfo next;
+  char  password[7];
+  uint  hash[4];
 }hashInfo_t;
 
 
-
+//Crack is a function that runs on the GPU and brute force cracks the hashes given.
 __global__  void crack(hashInfo_t * hashData, int length){
   //get string permuation
   int tempNum = blockIdx.x * NUM_THREADS + threadIdx.x;
@@ -43,100 +39,104 @@ __global__  void crack(hashInfo_t * hashData, int length){
     int temp = (int) (tempNum/POWER_ARR[i]);
     word[5 - i] += temp;
     tempNum = tempNum % POWER_ARR[i];
-  }
-  char output[PASSWORD_LENGTH];
-  
-  
+  }   
 
-  //-----HASH CODE HERE-----//
-  char * hashVar;
-
-  uint* candidate_hash;
+  //Calculate the hash with the function md5.
+  uint candidate_hash[4];
   md5((uint*)word, candidate_hash);
-  
-  
-  for(int j = 0; j < 100; j++){
-    //add one for NULL character?
-    if(memcmp(hashData[j], candidate_hash, HASH_LENGTH) == 0){
-      cudaMemcpy(hashData->password, word, PASSWORD_LENGTH, cudaMemcpyDeviceToDevice);
+
+  //Compare the provided hash to the calculated candidate hash.
+  for(int j = 0; j < length; j++){
+    if(candidate_hash[0] == hashData[j].hash[0]
+       && candidate_hash[1] == hashData[j].hash[1]
+       && candidate_hash[2] == hashData[j].hash[2]
+       && candidate_hash[3] == hashData[j].hash[3]){
+      memcpy(hashData[j].password, word, PASSWORD_LENGTH+1);
       break;
-      }
+    }
   }
-  
-
-  
-  // strncpy(output, word, PASSWORD_LENGTH+1);
-
-
   
 }
 
 //add hash to hash table
-void addToTable(hashInfo * table, char * hash){
-  hashInfo_t * temp = (hashInfo_t *) malloc(sizeof(hashInfo_t));
-  strncpy(temp->hash, hash, PASSWORD_LENGTH);
-  temp->next = NULL;
-  temp->password = NULL;
+/* void addToTable(hashInfo * table, char * hash){ */
+/*   hashInfo_t * temp = (hashInfo_t *) malloc(sizeof(hashInfo_t)); */
+/*   strncpy(temp->hash, hash, PASSWORD_LENGTH); */
+/*   temp->next = NULL; */
+/*   temp->password = NULL; */
   
-  if(table[hash[0] - 48 ]== NULL){
-    table[hash[0] - 48] = temp;
-  }
-  else{
-    temp->next =  table[hash[0] - 48];
-    table[hash[0] - 48] = temp;
-  }
-}
+/*   if(table[hash[0] - 48 ]== NULL){ */
+/*     table[hash[0] - 48] = temp; */
+/*   } */
+/*   else{ */
+/*     temp->next =  table[hash[0] - 48]; */
+/*     table[hash[0] - 48] = temp; */
+/*   } */
+/* } */
 
-int main(int, argv, char* args[]){
+int main(int argv, char* args[]){
   /*  hashInfo_t * hashTable[74];
-  int count = 0;
-  //get hashes in here -- add them -- count them //
+      int count = 0;
+      //get hashes in here -- add them -- count them //
   
-  hashInfo_t * gpu_hashTable;
+      hashInfo_t * gpu_hashTable;
  
-  //ISSUE IN COPYING A LINKED LIST TO THE GPU
- */
-  int number_of_blocks = (100+NUM_THREADS)/NUM_THREADS;
-  hashInfo_t arr[100];
-  if(argv != 2){
-    perror("crack <File Path>\n");
-    exit(2);
-  }
-  FILE * file = fopen(args[1], "r");
-  char * hash;
-  char * outputHash;
-  int count;
-  while(fgets(&hash, HASH_LENGTH+1, file) && count < 100){
-    outputHash = strsep(&hash, "\n");
-    arr[count].hash =  strdup(outputHash, strlen(outputHash));
+      //ISSUE IN COPYING A LINKED LIST TO THE GPU
+      */
+  
+  int number_of_blocks = (NUM_INPUT+NUM_THREADS)/NUM_THREADS;
+  hashInfo_t arr[NUM_INPUT];
+  
+  FILE * file = fopen("outputFile.txt", "r");/////////////CHANGE THIS TO ARGV EVENTUALLY/////////////
+  uint hash[4];
+  int count = 0;
+  char trash_can[7];
+
+  //Grab the input hashes from a file specified by the user in argv[1].
+  while(fscanf(file, "%s", trash_can) != EOF){
+    for(int i = 0; i < 4; i++){
+      fscanf(file, "%u", &hash[i]);
+    }
+    memcpy(arr[count].hash, hash, sizeof(uint)*4);
     count++;
   }
 
+  //Create the data structure to pass to the GPU
   hashInfo_t * gpu_arr;
-  if(cudaMalloc(gpu_arr, sizeof(hashInfo_t) * 100) != cudaSuccess){
+  if(cudaMalloc(&gpu_arr, sizeof(hashInfo_t) * NUM_INPUT) != cudaSuccess){
     perror("Cuda Malloc Failed\n");
     exit(2);
   }
 
-  if(cudaMemcpy(gpu_arr, arr, sizeof(hashInfo_t) * 100, cudaMemcpyHostToDevice) != cudaSuccess){
+  //Copy over our provided hashes in arr to the GPU_arr for analysis.
+  if(cudaMemcpy(gpu_arr, arr, sizeof(hashInfo_t) * NUM_INPUT, cudaMemcpyHostToDevice) != cudaSuccess){
     perror("Cuda CPU to GPU memcpy Failed\n");
     exit(2);
   }
-  
-  crack<<<number_of_blocks, NUM_THREADS>>>(gpu_arr,100);
 
+  //Crack the provided hashes on the GPU
+  crack<<<number_of_blocks, NUM_THREADS>>>(gpu_arr,NUM_INPUT);
+
+  //Ensure all CUDA threads have terminated
   if(cudaDeviceSynchronize() != cudaSuccess){
     perror("CUDA Thread Synchronization Error\n");
     exit(2);
   }
 
-  if(cudaMemcpy(arr, gpu_arr, sizeof(hashInfo_t) * 100, cudaMemcpyDeviceToHost) != cudaSuccess){
+  //Copy back the cracked passwords from the GPU.
+  if(cudaMemcpy(arr, gpu_arr, sizeof(hashInfo_t) * NUM_INPUT, cudaMemcpyDeviceToHost) != cudaSuccess){
     perror("Cuda GPU to CPU memcpy Failed\n");
     exit(2);
   }
 
-  for(int i - 0; i < 100; i++){
-    printf("Password: %s, Hash: %s\n", arr[i].password, arr[i].hash);
+  //Print the cracked passwords. Eventually we should delete this and automate
+  //password cracking sucess when we scale up the amount of passwords to crack
+  for(int i = 0; i < NUM_INPUT; i++){
+    printf("Password: %s, Hash:", arr[i].password);
+    for(int g = 0; g < 4; g++){
+      printf("%u ", arr[i].hash[g]);
+    }
+    printf("\n");
   }
 
   
