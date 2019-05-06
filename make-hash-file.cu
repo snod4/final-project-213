@@ -31,14 +31,16 @@ __global__ void hash_it_up (output_t * output, int max){
     char word[] = "aaaaaa";
     tempNum = count;
 
-    //Generate and store a permutation
+        //Generate and store a permutation
     for(int i = PASSWORD_LENGTH - 1; i >= 0; i--){
       int temp = (int) (tempNum/POWER_ARR[i]);
       word[PASSWORD_LENGTH -1 - i] += temp;
       tempNum = tempNum % POWER_ARR[i];
     }
     
+    
     word[PASSWORD_LENGTH] = '\0';
+    
     //Store the Password
     memcpy(output[count].password, word, sizeof(char)*PASSWORD_LENGTH+1);
 
@@ -56,7 +58,7 @@ __global__ void hash_it_up (output_t * output, int max){
 
 int main(int argc,char* args[]){
   FILE * file;
-  int max = 10;
+  int max = atoi(args[1]);
   output_t * gpu_input;
   output_t * output = (output_t *) malloc(sizeof(output_t)*max);
 
@@ -83,6 +85,7 @@ int main(int argc,char* args[]){
   
   //Write passwords and hashes to a file
   file = fopen("outputFile.txt", "w");///////Change the file to an argv index
+  fprintf(file, "%d\n", max);
   for(int i = 0; i < max; i++){
     fprintf(file, "%s ",output[i].password);
     for(int j = 0; j < 4; j++){

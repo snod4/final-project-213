@@ -6,10 +6,11 @@
 #include <cuda.h>
 #include "md5.cu"
 
-#define NUM_THREADS 32
+#define NUM_THREADS 128
 #define MAX_USERNAME_LENGTH 64
 
 #define PASSWORD_LENGTH 6
+#define SIXTH_POWER  (26 * 26 * 26 * 26 * 26* 26)
 #define FIFTH_POWER (26 * 26 * 26 * 26 * 26)
 #define FOURTH_POWER (26 * 26 * 26 * 26)
 #define THIRD_POWER (26 * 26 * 26)
@@ -17,26 +18,26 @@
 #define FIRST_POWER 26
 
 #define HASH_LENGTH 32
-#define NUM_INPUT 10
 
-__device__ int POWER_ARR[] = {1, FIRST_POWER, SECOND_POWER, THIRD_POWER, FOURTH_POWER, FIFTH_POWER};
+__device__ size_t POWER_ARR[] = {1, FIRST_POWER, SECOND_POWER, THIRD_POWER, FOURTH_POWER, FIFTH_POWER};
 
 
 typedef struct hashInfo{
   char  password[7];
   uint  hash[4];
+  int found = 0;
 }hashInfo_t;
 
 
-//Crack is a function that runs on the GPU and brute force cracks the hashes given.
+//Crack is a function that runs on the GPU and brute forces given hashes.
 __global__  void crack(hashInfo_t * hashData, int length){
   //get string permuation
-  int tempNum = blockIdx.x * NUM_THREADS + threadIdx.x;
+  size_t tempNum =((size_t) blockIdx.x) * ((size_t) NUM_THREADS) +((size_t) threadIdx.x);
   char word[] = "aaaaaa";
 
   //Generate the permutation for the given thread/core
   for(int i = PASSWORD_LENGTH - 1; i >= 0; i--){
-    int temp = (int) (tempNum/POWER_ARR[i]);
+    size_t temp =  tempNum/(POWER_ARR[i]);
     word[5 - i] += temp;
     tempNum = tempNum % POWER_ARR[i];
   }   
@@ -47,11 +48,13 @@ __global__  void crack(hashInfo_t * hashData, int length){
 
   //Compare the provided hash to the calculated candidate hash.
   for(int j = 0; j < length; j++){
-    if(candidate_hash[0] == hashData[j].hash[0]
+    if(!(hashData[j].found)
+       && candidate_hash[0] == hashData[j].hash[0]
        && candidate_hash[1] == hashData[j].hash[1]
        && candidate_hash[2] == hashData[j].hash[2]
        && candidate_hash[3] == hashData[j].hash[3]){
       memcpy(hashData[j].password, word, PASSWORD_LENGTH+1);
+      hashData[j].found = 1;
       break;
     }
   }
@@ -83,11 +86,15 @@ int main(int argv, char* args[]){
  
       //ISSUE IN COPYING A LINKED LIST TO THE GPU
       */
+  FILE * file = fopen("outputFile.txt", "r");/////////////CHANGE THIS TO ARGV EVENTUALLY/////////////
+  int NUM_INPUT = 0;
+  fscanf(file, "%d", &NUM_INPUT);
+  printf("Number of Input: %d\n", NUM_INPUT);
   
-  int number_of_blocks = (NUM_INPUT+NUM_THREADS)/NUM_THREADS;
+  int number_of_blocks = (308915776+NUM_THREADS)/NUM_THREADS;
   hashInfo_t arr[NUM_INPUT];
   
-  FILE * file = fopen("outputFile.txt", "r");/////////////CHANGE THIS TO ARGV EVENTUALLY/////////////
+  
   uint hash[4];
   int count = 0;
   char trash_can[7];
