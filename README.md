@@ -21,3 +21,25 @@ Array data structure with tuned blocksize of 128:
 300 Passwords in 2.609
 3000 Passwords in 23.136
 30000 Passwords in 235.538
+
+Hash table (2-D array) data structure w/ blocksize of 128 & depth of 1000:
+300 Passwords in .381
+3000 Passwords in 1.080
+30000 Passwords in 8.786
+100000 Passwords in 117.427
+
+Hash Table (2-D array) data structure with 50000 passwords:
+Depth of 10 - 16.741 secods
+Depth of 50 - 14.404 seconds
+Depth of 100 - 13.997 seconds
+Depth of 150 - 14.561 seoncds Broken???
+Depth of 250 - 31.950 seconds
+Depth of 500 - 37.869 seconds
+Depth of 1000 - 41.602 seconds
+
+Hash table (2-D array) data structure w/ blocksize of 128 & tuned depth of 100:
+300 Passwords in .351
+3000 Passwords in 1.028
+30000 Passwords in 8.507
+100000 Passwords in 27.922
+1000000 Passwords in 277.467 Wow
