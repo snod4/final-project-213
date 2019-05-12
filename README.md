@@ -42,4 +42,4 @@ Hash table (2-D array) data structure w/ blocksize of 128 & tuned depth of 100:
 3000 Passwords in 1.028
 30000 Passwords in 8.507
 100000 Passwords in 27.922
-1000000 Passwords in 277.467 Wow
+1000000 Passwords in 277.467 Wow 3604 per second

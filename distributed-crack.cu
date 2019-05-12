@@ -5,21 +5,27 @@
 #include <openssl/md5.h>
 #include <cuda.h>
 #include "md5.cu"
+#include "socket.h"
+#include <pthread.h>
 #include <unistd.h>
 
 #define NUM_THREADS 128
 #define MAX_USERNAME_LENGTH 64
 #define DEPTH 100
 #define PASSWORD_LENGTH 6
+#define MIN_DISTRIBUTED_PASSWORDS 3600
+
 #define SIXTH_POWER  (26 * 26 * 26 * 26 * 26* 26)
 #define FIFTH_POWER (26 * 26 * 26 * 26 * 26)
 #define FOURTH_POWER (26 * 26 * 26 * 26)
 #define THIRD_POWER (26 * 26 * 26)
 #define SECOND_POWER (26 * 26)
 #define FIRST_POWER 26
+
 #define NUMBER_OF_BINS 256
 
-//these denote whether or not the hash table is at capacity in a certain bin in a given addToHashTable call
+/*these denote whether or not the hash table is at capacity
+ *in a certain bin in a given addToHashTable call*/
 #define SUCCESS 43
 #define FAILURE 21
 
@@ -183,15 +189,59 @@ int sumTable(hashInfo_t * table){
   return sum;
 }
 
+void local_crack(){
+  
+}
 
-int main(int argv, char* args[]){
-  printf("H\n");
-  printf("E\n");
+void* crack_assign(void* p){
+  
   
   hashInfo_t  * gpu_hashTable;
   int counter = 0;
+  
+  int number_of_blocks = (308915776+NUM_THREADS)/NUM_THREADS;
+  uint hash[4];
+  char trash_can[7];
 
-      
+  FILE * file = fopen("outputFile.txt", "r");
+  printf("OPENED FILE\n");
+  int NUM_INPUT = 0;
+  fscanf(file, "%d", &NUM_INPUT);
+  printf("Number of Input: %d\n", NUM_INPUT);
+
+  unsigned short port = 0;
+  
+  // open socket
+  int server_socket_fd = server_socket_open(&port);
+  if(server_socket_fd == -1) {
+    perror("Server socket was not opened");
+    exit(2);
+  }
+
+  // listen for connections
+  if(listen(server_socket_fd, 1)) {
+    perror("listen failed\n");
+    exit(2);
+  }
+  
+  while(fscanf(file, "%s", trash_can) != EOF){
+    for(int i = 0; i < 4; i++){
+      fscanf(file, "%u", &hash[i]);
+    }
+
+    if(addToTable(hashTable, hash) == FAILURE){
+      break;
+    }
+    counter++;
+
+    
+  }
+}
+
+
+int main(int argv, char* args[]){
+  hashInfo_t  * gpu_hashTable;
+  int counter = 0;
       
   FILE * file = fopen("outputFile.txt", "r");
   printf("OPENED FILE\n");
@@ -200,12 +250,17 @@ int main(int argv, char* args[]){
   printf("Number of Input: %d\n", NUM_INPUT);
   
   int number_of_blocks = (308915776+NUM_THREADS)/NUM_THREADS;
-  //  hashInfo_t arr[NUM_INPUT];
-  
   
   uint hash[4];
   char trash_can[7];
 
+  if(NUM_INPUT <= MIN_DISTRIBUTED_PASSWORDS){
+    pthread(local_crack());
+  } else {
+    pthread(crack_assign());
+  }
+
+  
   //Grab the input hashes from a file specified by the user in argv[1].{
   while(counter < NUM_INPUT){
    hashInfo_t *  hashTable = (hashInfo_t *)malloc(sizeof(hashInfo_t)*NUMBER_OF_BINS * DEPTH);
@@ -213,9 +268,8 @@ int main(int argv, char* args[]){
     if(counter != 0){
       addToTable(hashTable,hash);
       counter++;
-      // printf("Added Hash: %d\n", counter);
     }
-    printf("Counter: %d\n", counter);
+    
     while(fscanf(file, "%s", trash_can) != EOF){
       for(int i = 0; i < 4; i++){
         fscanf(file, "%u", &hash[i]);
@@ -225,7 +279,6 @@ int main(int argv, char* args[]){
         break;
       }
       counter++;
-      // printf("Added Hash: %d\n", counter);
     }
 
     //Create the data structure to pass to the GPU
@@ -260,8 +313,7 @@ int main(int argv, char* args[]){
       exit(2);
     }
 
-    //Print the cracked passwords. Eventually we should delete this and automate
-    //password cracking sucess when we scale up the amount of passwords to crack
+    //Print the cracked passwords.
     printHashTable(hashTable);
 
     printf("Num Of Items: %d\n", sumTable(hashTable));
