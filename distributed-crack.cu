@@ -31,7 +31,42 @@
 
 #define HASH_LENGTH 32
 
+
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
+struct args{
+  FILE * file;
+  int number_to_read;
+}args_t;
+
+struct threadList{
+  threadNode *  head;
+}threadList_t;
+
+
+struct threadNode{
+  pthread_t thread;
+  struct threadNode * next;
+}threadNode_t;
+
+void addThread(pthread_t thread, threadList_t * list){
+  pthread_t * t = (pthread_t *) malloc(sizeof(pthread_t));
+  t->thread = thread;
+  t->next = NULL;
+  threadNode * node = list->head;
+  if(list->head == NULL){
+    list->head = t;
+  }
+  else{
+    t->next = list->head;
+    list->head = t;
+  }
+  
+}
+
+
 __device__ size_t POWER_ARR[] = {1, FIRST_POWER, SECOND_POWER, THIRD_POWER, FOURTH_POWER, FIFTH_POWER};
+
 
 __device__ int num_cracked = 0;
 typedef struct hashInfo{
@@ -223,19 +258,48 @@ void* crack_assign(void* p){
     perror("listen failed\n");
     exit(2);
   }
+
+  threadList_t threadList;
+  pthread_t thread;
+
+  while(1){
+    int client_socket_fd = server_socket_accept(server_socket_fd);
+    if(client_socket_fd == -1) {
+      perror("accept failed");
+      exit(2);
+    }
+    pthread_create(&thread, NULL, distribute_crack, ...);
+    addThread(thread, threadList);
+  }
   
-  while(fscanf(file, "%s", trash_can) != EOF){
-    for(int i = 0; i < 4; i++){
-      fscanf(file, "%u", &hash[i]);
+}
+
+void * distribute_crack(void * arg){
+  hashInfo_t * hashTable = (hashInfo_t *)malloc(sizeof(hashInfo_t)*DEPTH*NUMBER_OF_BINS);
+  uint hash[4];
+  char trash_can[7];
+  FILE * file =((args_t *) arg)->file;
+  int number_to_read = ((args_t *) arg)->number_to_read;
+  int eof;
+  pthread_mutex_lock(&lock);
+  while(eof != EOF){
+    while((eof =fscanf(file, "%s", trash_can)) != EOF){
+      for(int i = 0; i < 4; i++){
+        fscanf(file, "%u", &hash[i]);
+      }
+
+      if(addToTable(hashTable, hash) == FAILURE){
+        break;
+      }
+      counter++;
     }
 
-    if(addToTable(hashTable, hash) == FAILURE){
-      break;
-    }
-    counter++;
+    if(write(
 
     
   }
+  pthread_mutex_unlock(&lock);
+
 }
 
 
