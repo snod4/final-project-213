@@ -61,7 +61,9 @@ int main(int argc,char* args[]){
   int max = atoi(args[1]);
   output_t * gpu_input;
   output_t * output = (output_t *) malloc(sizeof(output_t)*max);
-
+  if(argc != 2){
+  printf("make-hash-file <int size>\n");
+}
   //Allocate space on GPU
   if(cudaMalloc(&gpu_input, sizeof(output_t)*max) != cudaSuccess){
     perror("Cuda Malloc Failed\n");
