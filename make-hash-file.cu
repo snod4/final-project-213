@@ -12,7 +12,7 @@
 #define FOURTH_POWER (26 * 26 * 26 * 26)
 #define THIRD_POWER (26 * 26 * 26)
 #define SECOND_POWER (26 * 26)
-#define FIRST_POWER 26
+#define FIRST_POWER 26 
 
 __device__ int POWER_ARR[] = {1, FIRST_POWER, SECOND_POWER, THIRD_POWER, FOURTH_POWER, FIFTH_POWER};
 
@@ -31,7 +31,7 @@ __global__ void hash_it_up (output_t * output, int max){
     char word[] = "aaaaaa";
     tempNum = count;
 
-        //Generate and store a permutation
+    //Generate and store a permutation
     for(int i = PASSWORD_LENGTH - 1; i >= 0; i--){
       int temp = (int) (tempNum/POWER_ARR[i]);
       word[PASSWORD_LENGTH -1 - i] += temp;
@@ -84,7 +84,7 @@ int main(int argc,char* args[]){
 
   
   //Write passwords and hashes to a file
-  file = fopen("outputFile.txt", "w");///////Change the file to an argv index
+  file = fopen("outputFile.txt", "w");
   fprintf(file, "%d\n", max);
   for(int i = 0; i < max; i++){
     fprintf(file, "%s ",output[i].password);

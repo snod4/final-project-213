@@ -1,0 +1,195 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <math.h>
+#include <openssl/md5.h>
+#include <cuda.h>
+#include "md5.cu"
+#include "socket.h"
+#include <unistd.h>
+
+#define NUM_THREADS 128
+#define MAX_USERNAME_LENGTH 64
+#define DEPTH 100
+#define PASSWORD_LENGTH 6
+
+#define SIXTH_POWER  (26 * 26 * 26 * 26 * 26* 26)
+#define FIFTH_POWER (26 * 26 * 26 * 26 * 26)
+#define FOURTH_POWER (26 * 26 * 26 * 26)
+#define THIRD_POWER (26 * 26 * 26)
+#define SECOND_POWER (26 * 26)
+#define FIRST_POWER 26
+
+#define NUMBER_OF_BINS 256
+
+/*these denote whether or not the hash table is at capacity
+ *in a certain bin in a given addToHashTable call*/
+#define SUCCESS 43
+#define FAILURE 21
+
+#define HASH_LENGTH 32
+
+__device__ size_t POWER_ARR[] = {1, FIRST_POWER, SECOND_POWER, THIRD_POWER, FOURTH_POWER, FIFTH_POWER};
+
+__device__ int num_cracked = 0;
+
+typedef struct hashInfo{
+  char  password[7];
+  uint  hash[4];
+  int empty = 1;
+  int length;
+}hashInfo_t;
+
+__device__ int isHash(hashInfo_t * table, uint * hash, char * password){
+  unsigned char byte;
+  byte = (hash[0]&0xFF);
+  for(int i = 1; i < table[DEPTH*byte].length+1; i++){
+    int index = DEPTH*byte+i;
+    if(!table[index].empty
+       && table[index].hash[0] == hash[0]
+       && table[index].hash[1] == hash[1]
+       && table[index].hash[2] == hash[2]
+       && table[index].hash[3] == hash[3]){
+      num_cracked++;
+      memcpy(table[index].password, password, PASSWORD_LENGTH*sizeof(char));
+      return 1;
+       
+    }
+     
+  }
+  return 0;
+}
+
+__global__  void crack(hashInfo_t * hashData){
+  
+  //get string permuation
+  size_t tempNum =((size_t) blockIdx.x) * ((size_t) NUM_THREADS) +((size_t) threadIdx.x);
+
+  char word[] = "aaaaaa";
+
+  //Generate the permutation for the given thread/core
+  for(int i = PASSWORD_LENGTH - 1; i >= 0; i--){
+    size_t temp =  tempNum/(POWER_ARR[i]);
+    word[5 - i] += temp;
+    tempNum = tempNum % POWER_ARR[i];
+  }   
+
+  //Calculate the hash with the function md5.
+  uint candidate_hash[4];
+  md5((uint*)word, candidate_hash);
+  isHash(hashData, candidate_hash, word);
+  // printf("Got out\n");
+  return;
+    
+}
+
+
+//add hash to hash table
+//uses first byte of hash to index hash in hashTable
+//returns SUCCESS if there is space in the bin denoted by the first byte for the hash
+//returns FAILURE otherwise
+int addToTable(hashInfo_t * table, uint * hash){
+  unsigned char byte;
+  byte = (hash[0]&0xFF);
+ 
+  if(table[DEPTH*byte].length == 0){
+      table[DEPTH*byte+1].hash[0] = hash[0];
+      table[DEPTH*byte+1].hash[1] = hash[1];
+      table[DEPTH*byte+1].hash[2] = hash[2];
+      table[DEPTH*byte+1].hash[3] = hash[3];
+         
+      table[DEPTH*byte+1].empty = 0;
+      table[DEPTH*byte].length++;
+      return SUCCESS;
+  }
+
+  int placement = table[DEPTH*byte].length+1;
+  if(placement - 1 < DEPTH  - 1){
+    table[DEPTH*byte+placement].hash[0] = hash[0];
+    table[DEPTH*byte+placement].hash[1] = hash[1];
+    table[DEPTH*byte+placement].hash[2] = hash[2];
+    table[DEPTH*byte+placement].hash[3] = hash[3];
+    table[DEPTH*byte].length++;
+    table[DEPTH*byte+placement].empty = 0;
+    return SUCCESS;
+    }
+  // printf("Add FAILURE\n");
+  return FAILURE;
+}
+
+int main(int argc, char* argv[]){
+   // Make sure the arguments include a port
+  if(argc !=2 ) {
+    fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
+    exit(1);
+  }
+
+  unsigned short server_port = atoi(argv[1]);
+  int number_of_blocks = (308915776+NUM_THREADS)/NUM_THREADS;
+
+  
+  //Connect to server
+  int server_socket_fd = server_socket_open(&server_port);
+  if(server_socket_fd == -1){
+    perror("Connection to server failed.\n");
+    exit(2);
+  }
+
+  while(1){
+        hashInfo_t* hash_table = (hashInfo*) malloc(sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH);
+        if(read(server_socket_fd, hash_table, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH) <= 0){
+          close(server_socket_fd);
+          perror("Drone could not read hash table.\n");
+          exit(2);
+        }
+
+        //Create the data structure to pass to the GPU
+        hashInfo_t  * gpu_hashTable;
+        if(cudaMalloc(&gpu_hashTable, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH) != cudaSuccess){
+          perror("Cuda Malloc Failed\n");
+          exit(2);
+        }
+
+        //Copy over our provided hashes in arr to the GPU_arr for analysis.
+        if(cudaMemcpy(gpu_hashTable, hash_table, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH,
+                      cudaMemcpyHostToDevice) != cudaSuccess){
+          close(server_socket_fd);
+          perror("Cuda CPU to GPU memcpy Failed\n");
+          exit(2);
+        }
+
+        printf("Cracking...\n");
+
+        crack<<<number_of_blocks, NUM_THREADS>>>(gpu_hashTable);
+
+        //Ensure all CUDA threads have terminated
+        if(cudaDeviceSynchronize() != cudaSuccess){
+          close(server_socket_fd);
+          perror("CUDA Thread Synchronization Error\n");
+          exit(2);
+        }
+        printf("Done\n");
+
+        //Copy back the cracked passwords from the GPU.
+        if(cudaMemcpy(hash_table, gpu_hashTable, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH,
+                      cudaMemcpyDeviceToHost) != cudaSuccess){
+          close(server_socket_fd);
+          perror("Cuda GPU to CPU memcpy Failed\n");
+          exit(2);
+        }
+        
+        //Send the passwords back to the server.
+        if(write(server_socket_fd, hash_table, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH) <= 0){
+          perror("Write Passback Failed\n");
+          close(server_socket_fd);
+          exit(2);
+        }
+
+        printf("Waiting for another hash table.\n");
+  }
+
+  
+  
+  close(server_socket_fd);
+  return 0;
+}

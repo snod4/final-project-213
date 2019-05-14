@@ -1,0 +1,10 @@
+CC := nvcc
+TARGETS := crackDrone local-crack distriuted-crack make-hash-file
+
+all: $(TARGETS)
+
+clean:
+	rm -rf $(TARGETS)
+
+%: %.cu
+	@$(CC) -o $@ $<
