@@ -54,7 +54,7 @@ __device__ int isHash(hashInfo_t * table, uint * hash, char * password){
   unsigned char byte;
   byte = (hash[0]&0xFF);
 
-   //loops through the bin -- first element of the bin is empty but denotes the size of the bin
+  //loops through the bin -- first element of the bin is empty but denotes the size of the bin
   for(int i = 1; i < table[DEPTH*byte].length+1; i++){
     int index = DEPTH*byte+i;
     if(!table[index].empty
@@ -115,14 +115,14 @@ int addToTable(hashInfo_t * table, uint * hash){
 
   //handles insertion and length incrementing in the bin given by byte
   if(table[DEPTH*byte].length == 0){
-      table[DEPTH*byte+1].hash[0] = hash[0];
-      table[DEPTH*byte+1].hash[1] = hash[1];
-      table[DEPTH*byte+1].hash[2] = hash[2];
-      table[DEPTH*byte+1].hash[3] = hash[3];
+    table[DEPTH*byte+1].hash[0] = hash[0];
+    table[DEPTH*byte+1].hash[1] = hash[1];
+    table[DEPTH*byte+1].hash[2] = hash[2];
+    table[DEPTH*byte+1].hash[3] = hash[3];
          
-      table[DEPTH*byte+1].empty = 0;
-      table[DEPTH*byte].length++;
-      return SUCCESS;
+    table[DEPTH*byte+1].empty = 0;
+    table[DEPTH*byte].length++;
+    return SUCCESS;
   }
 
   int placement = table[DEPTH*byte].length+1;
@@ -134,7 +134,7 @@ int addToTable(hashInfo_t * table, uint * hash){
     table[DEPTH*byte].length++;
     table[DEPTH*byte+placement].empty = 0;
     return SUCCESS;
-    }
+  }
  
   return FAILURE;
 }
@@ -142,13 +142,13 @@ int addToTable(hashInfo_t * table, uint * hash){
 /////////////////////////// MAIN ////////////////////////////
 
 int main(int argc, char* argv[]){
-   // Make sure the arguments include a port
-  if(argc !=2 ) {
+  // Make sure the arguments include a port
+  if(argc !=3 ) {
     fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
     exit(1);
   }
-  
-  unsigned short server_port = atoi(argv[1]);
+  char * name = argv[1];
+  unsigned short server_port = atoi(argv[2]);
 
   //calculates number of blocks needed assuming every thread computes one
   //possible six-character, alpabetic string permuation.
@@ -156,76 +156,76 @@ int main(int argc, char* argv[]){
 
   
   //Connect to server
-  int server_socket_fd = server_socket_open(&server_port);
+  int server_socket_fd = socket_connect(name, server_port);
   if(server_socket_fd == -1){
     perror("Connection to server failed.\n");
     exit(2);
   }
-  
+  usleep(10000000);
   printf("Connected\n");
 
   //read in input sent over from the host maching until the the host machine terminates the
   //connection or the read fucntion errors
   int rc;
-  while(1){
-        hashInfo_t* hash_table = (hashInfo*) malloc(sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH);
-        if((rc = read(server_socket_fd, hash_table, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH)) <= 0){
-          if(rc == 0){
-            printf("Connection closed\n");
-          }
-          else{
-          perror("Drone could not read hash table.\n");
-          }
-          close(server_socket_fd);
-          exit(2);
-        }
+  hashInfo_t* hash_table = (hashInfo*) malloc(sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH);
+  while((rc = read(server_socket_fd, hash_table, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH)) <= 0){
+ 
+     
 
-        //Create the data structure to pass to the GPU
-        hashInfo_t  * gpu_hashTable;
-        if(cudaMalloc(&gpu_hashTable, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH) != cudaSuccess){
-          perror("Cuda Malloc Failed\n");
-          exit(2);
-        }
+    //Create the data structure to pass to the GPU
+    hashInfo_t  * gpu_hashTable;
+    if(cudaMalloc(&gpu_hashTable, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH) != cudaSuccess){
+      perror("Cuda Malloc Failed\n");
+      exit(2);
+    }
 
-        //Copy over our provided hashes in arr to the GPU_arr for analysis.
-        if(cudaMemcpy(gpu_hashTable, hash_table, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH,
-                      cudaMemcpyHostToDevice) != cudaSuccess){
-          close(server_socket_fd);
-          perror("Cuda CPU to GPU memcpy Failed\n");
-          exit(2);
-        }
+    //Copy over our provided hashes in arr to the GPU_arr for analysis.
+    if(cudaMemcpy(gpu_hashTable, hash_table, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH,
+                  cudaMemcpyHostToDevice) != cudaSuccess){
+      close(server_socket_fd);
+      perror("Drone CPU to GPU memcpy Failed\n");
+      exit(2);
+    }
 
-        printf("Cracking...\n");
+    printf("Cracking...\n");
 
-        crack<<<number_of_blocks, NUM_THREADS>>>(gpu_hashTable);
+    crack<<<number_of_blocks, NUM_THREADS>>>(gpu_hashTable);
 
-        //Ensure all CUDA threads have terminated
-        if(cudaDeviceSynchronize() != cudaSuccess){
-          close(server_socket_fd);
-          perror("CUDA Thread Synchronization Error\n");
-          exit(2);
-        }
-        printf("Done\n");
+    //Ensure all CUDA threads have terminated
+    if(cudaDeviceSynchronize() != cudaSuccess){
+      close(server_socket_fd);
+      perror("Drone CUDA Thread Synchronization Error\n");
+      exit(2);
+    }
+    printf("Done\n");
 
-        //Copy back the cracked passwords from the GPU.
-        if(cudaMemcpy(hash_table, gpu_hashTable, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH,
-                      cudaMemcpyDeviceToHost) != cudaSuccess){
-          close(server_socket_fd);
-          perror("Cuda GPU to CPU memcpy Failed\n");
-          exit(2);
-        }
+    //Copy back the cracked passwords from the GPU.
+    if(cudaMemcpy(hash_table, gpu_hashTable, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH,
+                  cudaMemcpyDeviceToHost) != cudaSuccess){
+      close(server_socket_fd);
+      perror("Cuda GPU to CPU memcpy Failed\n");
+      exit(2);
+    }
         
-        //Send the hash table back to the server
-        if(write(server_socket_fd, hash_table, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH) <= 0){
-          perror("Write Passback Failed\n");
-          close(server_socket_fd);
-          exit(2);
-        }
+    //Send the hash table back to the server
+    if(write(server_socket_fd, hash_table, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH) <= 0){
+      perror("Write Passback Failed\n");
+      close(server_socket_fd);
+      exit(2);
+    }
 
-        printf("Waiting for another hash table.\n");
+    printf("Waiting for another hash table.\n");
+    free(hash_table);
+    hash_table = (hashInfo*) malloc(sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH);
   }
 
-  
+  if(rc == 0){
+    printf("Connection closed\n");
+  }
+  else{
+    perror("Drone could not read hash table.\n");
+  }
+   
   
   close(server_socket_fd);
   return 0;

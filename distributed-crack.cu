@@ -36,25 +36,25 @@
 //lock for reading the file
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
-int sever_socket_fd;
+int server_socket_fd;
 
 __device__ size_t POWER_ARR[] = {1, FIRST_POWER, SECOND_POWER, THIRD_POWER, FOURTH_POWER, FIFTH_POWER};
 
 __device__ int num_cracked = 0;
 
 //struct for packaging the arguments to pass to the threads
-struct args{
+typedef struct args{
   FILE * file;
   int client_socket_fd;
 }args_t;
 
 //struct for the list of threads -- not necessary in current implementation
-struct threadList{
-  threadNode *  head;
+typedef struct threadList{
+  struct threadNode *  head;
 }threadList_t;
 
 //node in the list of threads
-struct threadNode{
+typedef struct threadNode{
   pthread_t thread;
   struct threadNode * next;
 }threadNode_t;
@@ -73,7 +73,7 @@ typedef struct hashInfo{
   adds a thread into the threadList_t list
 */
 void addThread(pthread_t thread, threadList_t * list){
-  pthread_t * t = (pthread_t *) malloc(sizeof(pthread_t)); 
+  threadNode_t * t = (threadNode_t *) malloc(sizeof(threadNode_t)); 
   t->thread = thread;
   t->next = NULL;
   threadNode * node = list->head;
@@ -218,9 +218,11 @@ void initializeTable(hashInfo_t * table){
   
 }
 
+void * distribute_crack(void * arg);
+
 /*
   handles cracking on the local machine in its own thread
- */
+*/
 void * local_crack(void * args){
 
   FILE * file = ((args_t *) args)->file;
@@ -235,6 +237,7 @@ void * local_crack(void * args){
   char trash_can[7];
   //value returned by fscanf
   int eof = 0;
+  int counter;
 
   //Grab the input hashes from a file ideally specified by the user but, for our purposes, specified by outputFile.txt instead
   //If one of the bins of the hash table fills ups completely, the items in the table must be processed. This condition ensures
@@ -262,6 +265,7 @@ void * local_crack(void * args){
       if(addToTable(hashTable, hash) == FAILURE){
         break;
       }
+      counter++;
     }
     pthread_mutex_unlock(&lock);
 
@@ -298,25 +302,20 @@ void * local_crack(void * args){
     }
 
     //Print the cracked passwords.
-    printHashTable(hashTable);
+    //    printHashTable(hashTable);
 
     //frees hashTable for this portion of the cracking process
     free(hashTable);
   }
+
+  return NULL;
 }
 
 /*
   Listens for incoming connections from other machines
 */
 void incoming_crack(FILE * file){
-  
-  
-  hashInfo_t  * gpu_hashTable;
-  int counter = 0;
-  
-  int number_of_blocks = (308915776+NUM_THREADS)/NUM_THREADS;
-  uint hash[4];
-  char trash_can[7];
+ 
   
   int NUM_INPUT = 0;
   fscanf(file, "%d", &NUM_INPUT);
@@ -331,7 +330,7 @@ void incoming_crack(FILE * file){
     exit(2);
   }
   
-  printf("Server Socket ID: %d\n",server_socket_fd);
+  printf("Server Port: %d\n",port);
 
   if(listen(server_socket_fd, 10)) {
     perror("listen failed\n");
@@ -358,7 +357,8 @@ void incoming_crack(FILE * file){
     //create the thread
     pthread_create(&thread, NULL, distribute_crack, args);
     //add thread to the threadList
-    addThread(thread, threadList);
+    addThread(thread, &threadList);
+    printf("Added Machine\n");
   }
   
 }
@@ -376,19 +376,19 @@ void * distribute_crack(void * arg){
   //gets file from arg
   FILE * file =((args_t *) arg)->file;
   //gets client_socket_fd from arg
-  int client_socket_fd = ((arg_t *)arg)->client_socket_fd;
+  int client_socket_fd = ((args_t *)arg)->client_socket_fd;
 
   //counts number of items read in
   int counter;
   //value returned by fscanf
-  int eof; = 0;
+  int eof = 0;
 
   //Grab the input hashes from a file ideally specified by the user but, for our purposes, specified by outputFile.txt instead
   //If one of the bins of the hash table fills ups completely, the items in the table must be processed. This condition ensures
   //that even if it takes multiple passes, all items in file will be processed
   while(eof != EOF){
 
-     //allocates space for the hash table
+    //allocates space for the hash table
     hashInfo_t *  hashTable = (hashInfo_t *)malloc(sizeof(hashInfo_t)*NUMBER_OF_BINS * DEPTH);
     initializeTable(hashTable);
 
@@ -412,19 +412,21 @@ void * distribute_crack(void * arg){
     pthread_mutex_unlock(&lock);
 
     //sends hash table to the connected machine running crackDrone
-    if(write(client_socket_fd, hashTable, sizeof(hashInfo_t) * DEPTH * NUMBER_OF_BINS) <= 0){
+    printf("Writing\n");
+    if(write(client_socket_fd, hashTable, sizeof(hashInfo_t) * NUMBER_OF_BINS * DEPTH) <= 0){
       perror("Write Pass-To failed\n");
       close(client_socket_fd);
       exit(2);
     }
     //reads back crack passwords from connected machine
     int error;
+    usleep(100);
     if((error = read(client_socket_fd, hashTable, sizeof(hashInfo_t) * DEPTH * NUMBER_OF_BINS)) <= 0){
       if(error == 0){
         printf("Conection Closed\n");
       }
       else{
-      perror("Read Pass-Back failed\n");
+        perror("Read Pass-Back failed\n");
       }
       close(client_socket_fd);
       exit(2);
@@ -436,6 +438,7 @@ void * distribute_crack(void * arg){
   
   
   close(client_socket_fd);
+  return NULL;
 }
 
 
@@ -451,12 +454,12 @@ int main(int argv, char* args[]){
   fscanf(file, "%d", &NUM_INPUT);
   
   //packages file to pass to local_crack
-  args_t args;
-  args.file = file;
+  args_t * arg = (args_t *)malloc(sizeof(args_t));
+  arg->file = file;
   
   //creates thread for local_crack
   pthread_t thread;
-  pthread_create(&thread, NULL, local_crack, args);
+  pthread_create(&thread, NULL, local_crack, arg);
 
   //does not distribute the file data unless the number of input exceeds MIN_DISTRIBUTED_PASSWORDS
   //which takes about one second to crack on the classroom machines

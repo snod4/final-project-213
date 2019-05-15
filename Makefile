@@ -1,5 +1,5 @@
 CC := nvcc
-TARGETS := make-hash-file local-crack
+TARGETS := make-hash-file local-crack distributed-crack crackDrone
 
 all: $(TARGETS)
 
